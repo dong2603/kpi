@@ -2,9 +2,11 @@ import os
 import re
 import urllib.request
 import ssl
+import gc
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+from openpyxl import load_workbook
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
@@ -13,6 +15,27 @@ CORS(app)
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_XLSX = os.path.join(DATA_DIR, "google_sheets_data.xlsx")
 DEFAULT_SHEET_ID = "1Qvg1C1yKhOnz3TdpGT1MBjFnr9Ma3t98z3T6V8mu_Ag"
+
+def find_header_row(filepath, sheet_name="PUBG Court"):
+    wb = load_workbook(filename=filepath, read_only=True)
+    ws = wb[sheet_name]
+    header_row_idx = 7 # Default fallback
+    
+    for r_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        if r_idx > 15:
+            break
+        row_vals = [str(cell).strip().lower() for cell in row if cell is not None]
+        if 'start' in row_vals and 'end' in row_vals and 'manager' in row_vals:
+            header_row_idx = r_idx - 1
+            break
+    wb.close()
+    return header_row_idx
+
+def get_sheet_names_light(filepath):
+    wb = load_workbook(filename=filepath, read_only=True)
+    sheets = wb.sheetnames
+    wb.close()
+    return sheets
 
 def extract_sheet_id(url_or_id):
     if not url_or_id:
@@ -23,6 +46,7 @@ def extract_sheet_id(url_or_id):
         return match.group(1)
     return url_or_id
 
+# ... (중략 - download_sheet는 아래에 유지됨)
 def download_sheet(sheet_id):
     export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
     temp_path = os.path.join(DATA_DIR, f"temp_{sheet_id}.xlsx")
@@ -119,19 +143,21 @@ def load_cached_data(sheet_id, force=False):
                 if not os.path.exists(LOCAL_XLSX):
                     raise e
                     
-        # 2. Parse excel file into DataFrame
-        df_raw = pd.read_excel(LOCAL_XLSX, sheet_name="PUBG Court", header=None)
+        # 2. Parse excel file header row index using openpyxl (Low memory)
+        header_row_idx = find_header_row(LOCAL_XLSX)
         
-        # Find where header starts (which row contains 'start', 'end', 'manager')
-        header_row_idx = 7 # Default based on analysis
-        for idx in range(min(15, len(df_raw))):
-            row_vals = [str(x).strip().lower() for x in df_raw.iloc[idx] if pd.notna(x)]
-            if 'start' in row_vals and 'end' in row_vals and 'manager' in row_vals:
-                header_row_idx = idx
-                break
+        # 3. Parse only required columns from Excel into DataFrame
+        cols_to_use = [
+            'end', 'manager', 'platformf', 'term', 'name', 
+            'steamid', 'detail reason', 'type1', 'type2', '완료소요시간'
+        ]
         
-        # Re-read with proper header row
-        df = pd.read_excel(LOCAL_XLSX, sheet_name="PUBG Court", skiprows=header_row_idx)
+        df = pd.read_excel(
+            LOCAL_XLSX, 
+            sheet_name="PUBG Court", 
+            skiprows=header_row_idx,
+            usecols=cols_to_use
+        )
         
         # Clean column names (strip spaces)
         df.columns = [str(col).strip() for col in df.columns]
@@ -154,9 +180,11 @@ def load_cached_data(sheet_id, force=False):
         # Save to memory cache
         cached_df = df
         
-        # Get active sheets summary information
-        with pd.ExcelFile(LOCAL_XLSX) as xls_info:
-            cached_sheets_list = xls_info.sheet_names
+        # Get active sheets summary information using openpyxl (Low memory)
+        cached_sheets_list = get_sheet_names_light(LOCAL_XLSX)
+        
+        # Force grabage collection to free memory instantly
+        gc.collect()
             
     return cached_df, cached_sheets_list, cached_download_error
 
