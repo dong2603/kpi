@@ -363,8 +363,7 @@ def get_court_data():
             })
             
         # Get active sheets summary information
-        with pd.ExcelFile(LOCAL_XLSX) as xls_info:
-            active_sheets = xls_info.sheet_names
+        active_sheets = ["PUBG Court"]
 
         response_data = {
             "success": True,
