@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PUBG Court 안티치트 KPI 대시보드</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- ApexCharts CSS/JS -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="style.css?v=2.0">
+</head>
+<body>
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="auth-overlay">
+        <div class="auth-card">
+            <div class="auth-icon-circle">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2 class="auth-title">보안 인증</h2>
+            <p class="auth-desc">PUBG Court KPI 대시보드에 접속하기 위해<br>사내 공통 비밀번호를 입력해주세요.</p>
+            <input type="password" id="auth-password" class="auth-input" placeholder="비밀번호 입력" autocomplete="off">
+            <p id="auth-error" class="auth-error"></p>
+            <button id="auth-submit" class="auth-btn">
+                <i class="fa-solid fa-right-to-bracket"></i> 인증 및 접속
+            </button>
+        </div>
+    </div>
+
+    <div class="dashboard-container" id="dashboard-container" style="display: none;">
+        <!-- Sidebar Navigation (Disabled) -->
+        <!--
+        <aside class="sidebar">
+            <div class="logo-area">
+                <i class="fa-solid fa-shield-halved logo-icon"></i>
+                <h2>PUBG AC<span>Court</span></h2>
+            </div>
+            <nav class="nav-menu">
+                <a href="#overview" class="nav-item active" data-tab="overview">
+                    <i class="fa-solid fa-chart-pie"></i> 종합 현황
+                </a>
+                <a href="#monthly" class="nav-item" data-tab="monthly">
+                    <i class="fa-solid fa-calendar-days"></i> 기간별 실적
+                </a>
+                <a href="#managers" class="nav-item" data-tab="managers">
+                    <i class="fa-solid fa-users-gear"></i> 담당자별 분석
+                </a>
+                <a href="#reasons" class="nav-item" data-tab="reasons">
+                    <i class="fa-solid fa-triangle-exclamation"></i> 핵 사유 분석
+                </a>
+                <a href="#records" class="nav-item" data-tab="records">
+                    <i class="fa-solid fa-list-check"></i> 최신 검수 내역
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <p>System Status: <span class="status-indicator active"></span> Online</p>
+                <p class="version">v1.2.0 (Real-time)</p>
+            </div>
+        </aside>
+        -->
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header Panel -->
+            <header class="dashboard-header">
+                <div class="header-title">
+                    <h1>PUBG Court 실시간 KPI 대시보드</h1>
+                    <p class="subtitle">구글 시트 실시간 동기화를 통한 안티치트 검수 통계 분석</p>
+                </div>
+                <div class="sync-panel">
+                    <input type="hidden" id="sheet-url" value="https://docs.google.com/spreadsheets/d/1Qvg1C1yKhOnz3TdpGT1MBjFnr9Ma3t98z3T6V8mu_Ag/edit?gid=1028730445">
+                    <a href="https://docs.google.com/spreadsheets/d/1Qvg1C1yKhOnz3TdpGT1MBjFnr9Ma3t98z3T6V8mu_Ag/edit?gid=1028730445" target="_blank" class="btn btn-secondary">
+                        <i class="fa-solid fa-arrow-up-right-from-square"></i> 시트로 바로가기
+                    </a>
+                    <button id="btn-sync" class="btn btn-primary">
+                        <i class="fa-solid fa-rotate sync-icon"></i> 실시간 동기화
+                    </button>
+                    <span id="last-sync-time" class="last-sync-time"></span>
+                </div>
+            </header>
+
+            <!-- Dashboard Content Tabs -->
+            <div class="tab-content active" id="tab-overview">
+                <!-- Global Filter Bar Section (User Overhauled Top Bar) -->
+                <section class="global-filter-bar" style="margin-bottom: 24px;">
+                    <div class="filter-group">
+                        <label class="filter-label">분석 데이터 구분</label>
+                        <select id="filter-data-type" class="global-filter-select">
+                            <option value="">전체 데이터</option>
+                            <option value="PUBG Court">PUBG Court</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">담당자</label>
+                        <select id="filter-global-manager" class="global-filter-select">
+                            <option value="">전체 담당자</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">플랫폼</label>
+                        <select id="filter-global-platform" class="global-filter-select">
+                            <option value="">전체 플랫폼</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">제재 구분</label>
+                        <select id="filter-global-sanction" class="global-filter-select">
+                            <option value="">전체</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">월 선택</label>
+                        <select id="filter-global-month" class="global-filter-select">
+                            <option value="">전체 월</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">일자 선택</label>
+                        <select id="filter-global-day" class="global-filter-select">
+                            <option value="">전체 일</option>
+                        </select>
+                    </div>
+                </section>
+
+                <!-- Large KPI Cards Grid -->
+                <section class="large-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-bottom: 24px;">
+                    <!-- Card 1: 총 검수 건수 -->
+                    <div class="large-kpi-card kpi-card-blue" id="card-total-inspected">
+                        <div class="kpi-details">
+                            <span class="kpi-label">총 검수 건수</span>
+                            <h2 class="kpi-value" id="val-total-inspected">-</h2>
+                            <span class="kpi-subtext" id="sub-total-inspected">전체 완료 건수</span>
+                        </div>
+                        <div class="kpi-icon-box-large">
+                            <i class="fa-regular fa-clipboard"></i>
+                        </div>
+                    </div>
+                    
+                    <!-- Card 2: 제재 조치 건수 (제재율) -->
+                    <div class="large-kpi-card kpi-card-purple" id="card-total-sanctions">
+                        <div class="kpi-details">
+                            <span class="kpi-label">제재 조치 건수 (제재율)</span>
+                            <h2 class="kpi-value" id="val-total-sanctions">-</h2>
+                            <span class="kpi-subtext" id="sub-total-sanctions">실제 제재 성공률: -%</span>
+                        </div>
+                        <div class="kpi-icon-box-large">
+                            <i class="fa-solid fa-circle-info"></i>
+                        </div>
+                    </div>
+                    
+                    <!-- Card 3: 평균 검수 소요 시간 -->
+                    <div class="large-kpi-card kpi-card-green" id="card-avg-duration">
+                        <div class="kpi-details">
+                            <span class="kpi-label">평균 완료 소요 시간</span>
+                            <h2 class="kpi-value" id="val-avg-duration">-</h2>
+                            <span class="kpi-subtext" id="sub-avg-duration">평균 소요 시간: -초</span>
+                        </div>
+                        <div class="kpi-icon-box-large">
+                            <i class="fa-regular fa-clock"></i>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Monthly KPI Summary Table Section -->
+                <section class="summary-table-section" style="margin-bottom: 24px;">
+                    <div class="summary-table-card">
+                        <div class="table-header-custom" style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-table-list" style="color: var(--neon-blue);"></i>
+                            <h3 style="font-size: 15px; font-weight: 600;">월별 핵심 지표 요약 [Monthly KPI Summary]</h3>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="dashboard-table summary-table" id="table-monthly-summary">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 12%;">대상 월</th>
+                                        <th style="width: 22%;">총 검수 건수</th>
+                                        <th style="width: 22%;">제재 조치 건수</th>
+                                        <th style="width: 22%;">제재율 (성공률)</th>
+                                        <th style="width: 22%;">평균 검수 소요시간</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rendered dynamically by app.js -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Charts Section 1 (2분할: 일별 트렌드 & 상위 10대 사유 분포) -->
+                <section class="charts-row split-2">
+                    <!-- Daily Trend Chart -->
+                    <div class="chart-card wide">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-chart-line header-chart-icon"></i> 일별 검수 완료 트렌드</h3>
+                        </div>
+                        <div class="chart-body" id="chart-daily-trend"></div>
+                    </div>
+                    <!-- Top Reasons Bar Chart -->
+                    <div class="chart-card narrow">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-bug header-chart-icon"></i> 상위 10대 제재 사유 분포</h3>
+                        </div>
+                        <div class="chart-body" id="chart-top-reasons"></div>
+                    </div>
+                </section>
+
+                <!-- Charts Section 2 (3분할: 담당자 건수 순위 & 평균 시간 순위 & 검수 유형 분포) -->
+                <section class="charts-row split-3">
+                    <!-- Rank 1: Inspected Count -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-trophy header-chart-icon"></i> 담당자별 누적 검수 건수 순위</h3>
+                        </div>
+                        <div class="chart-body rank-table-wrapper" style="padding: 10px 0;">
+                            <table class="rank-table" id="table-rank-inspected">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 20%; padding-left: 8px;">순위</th>
+                                        <th style="width: 45%;">담당자</th>
+                                        <th style="width: 35%; text-align: right; padding-right: 8px;">검수 건수</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rendered by app.js -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Rank 2: Average Duration -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-stopwatch header-chart-icon"></i> 담당사별 평균 소요시간 순위 (빠른 순)</h3>
+                        </div>
+                        <div class="chart-body rank-table-wrapper" style="padding: 10px 0;">
+                            <table class="rank-table" id="table-rank-duration">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 20%; padding-left: 8px;">순위</th>
+                                        <th style="width: 45%;">담당자</th>
+                                        <th style="width: 35%; text-align: right; padding-right: 8px;">평균 소요시간</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rendered by app.js -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Donut Chart: Type 1 Distribution -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-circle-info header-chart-icon"></i> 검수 유형(Type 1) 분포</h3>
+                        </div>
+                        <div class="chart-body" id="chart-type1-overview-share"></div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Monthly Trend -->
+            <div class="tab-content" id="tab-monthly">
+                <section class="charts-row">
+                    <div class="chart-card large">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-chart-line header-chart-icon"></i> 월별 검수량 및 제재 성공률 장기 추이</h3>
+                        </div>
+                        <div class="chart-body" id="chart-monthly-trend"></div>
+                    </div>
+                </section>
+                <section class="charts-row split">
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-chart-bar header-chart-icon"></i> 월별 제재성공 누적량</h3>
+                        </div>
+                        <div class="chart-body" id="chart-monthly-stacked"></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-hourglass-half header-chart-icon"></i> 월별 평균 검수 소요시간 (초)</h3>
+                        </div>
+                        <div class="chart-body" id="chart-monthly-duration"></div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Managers -->
+            <div class="tab-content" id="tab-managers">
+                <section class="charts-row">
+                    <div class="chart-card large">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-chart-bar header-chart-icon"></i> 담당자별 세부 실적 지표 (처리량 vs 제재성공률)</h3>
+                        </div>
+                        <div class="chart-body" id="chart-managers-bar"></div>
+                    </div>
+                </section>
+                <div class="grid-table-container">
+                    <div class="card-table">
+                        <div class="table-header-custom">
+                            <h3>담당자 실적 일람표</h3>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="dashboard-table" id="table-managers">
+                                <thead>
+                                    <tr>
+                                        <th>담당자</th>
+                                        <th>총 검수량</th>
+                                        <th>제재량</th>
+                                        <th>제재 성공률</th>
+                                        <th>평균 소요 시간</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rendered dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Reasons -->
+            <div class="tab-content" id="tab-reasons">
+                <section class="charts-row split">
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-circle-info header-chart-icon"></i> 검수 요청 소스 분포 (Type 1)</h3>
+                        </div>
+                        <div class="chart-body" id="chart-type1-distribution"></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-screwdriver-wrench header-chart-icon"></i> 매칭 검수 툴 분포 (Type 2)</h3>
+                        </div>
+                        <div class="chart-body" id="chart-type2-distribution"></div>
+                    </div>
+                </section>
+                <section class="charts-row">
+                    <div class="chart-card large">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-circle-exclamation header-chart-icon"></i> 제재 사유 세부 통계</h3>
+                        </div>
+                        <div class="table-responsive" style="padding: 20px;">
+                            <table class="dashboard-table" id="table-reasons">
+                                <thead>
+                                    <tr>
+                                        <th>순위</th>
+                                        <th>제재 상세 사유</th>
+                                        <th>발생 건수</th>
+                                        <th>전체 비중 (%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rendered dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Tab: Records -->
+            <div class="tab-content" id="tab-records">
+                <div class="table-filter-area">
+                    <div class="search-box">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="table-search" placeholder="플레이어명, 담당자, 제재사유로 필터링...">
+                    </div>
+                    <div class="filter-selectors">
+                        <select id="filter-term">
+                            <option value="">전체 상태</option>
+                            <option value="Y">제재 완료 (Y)</option>
+                            <option value="empty">미제재 / 증거불충분</option>
+                        </select>
+                        <select id="filter-manager">
+                            <option value="">전체 담당자</option>
+                            <!-- Rendered dynamically -->
+                        </select>
+                    </div>
+                </div>
+                <div class="grid-table-container">
+                    <div class="card-table">
+                        <div class="table-responsive">
+                            <table class="dashboard-table" id="table-recent-records">
+                                <thead>
+                                    <tr>
+                                        <th>검수 완료일시</th>
+                                        <th>담당자</th>
+                                        <th>플레이어명</th>
+                                        <th>상태</th>
+                                        <th>상세 제재사유</th>
+                                        <th>검수 소스</th>
+                                        <th>검수 툴</th>
+                                        <th>소요시간</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rendered dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">
+        <i id="toast-icon" class="fa-solid fa-circle-info"></i>
+        <span id="toast-msg">메시지 내용</span>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay active">
+        <div class="spinner-box">
+            <div class="pulse-container">
+                <div class="pulse-bubble pulse-bubble-1"></div>
+                <div class="pulse-bubble pulse-bubble-2"></div>
+                <div class="pulse-bubble pulse-bubble-3"></div>
+            </div>
+            <p id="loading-text">구글 시트 데이터 로딩 및 분석 중...</p>
+        </div>
+    </div>
+
+    <script src="app.js?v=2.0"></script>
+</body>
+</html>
