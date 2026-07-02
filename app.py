@@ -83,17 +83,39 @@ def find_header_row_csv(filepath):
 def parse_time_to_seconds(t_val):
     if pd.isna(t_val):
         return 0
-    # Try parsing string format (e.g. 0:12:32 or 12:32)
     t_str = str(t_val).strip()
+    
+    # 1. Parse hh:mm:ss or mm:ss formats
+    if ':' in t_str:
+        try:
+            parts = t_str.split(':')
+            if len(parts) == 3:
+                h, m, s = parts
+                return int(h) * 3600 + int(m) * 60 + float(s)
+            elif len(parts) == 2:
+                m, s = parts
+                return int(m) * 60 + float(s)
+        except Exception:
+            pass
+
+    # 2. Parse Korean text formats like '12분', '2시간 15분', or plain integers '12'
+    total_seconds = 0
     try:
-        parts = t_str.split(':')
-        if len(parts) == 3:
-            h, m, s = parts
-            # float conversion to handle milliseconds like 0:15:12.500
-            return int(h) * 3600 + int(m) * 60 + float(s)
-        elif len(parts) == 2:
-            m, s = parts
-            return int(m) * 60 + float(s)
+        # Extract hours
+        h_match = re.search(r'(\d+)\s*시간', t_str)
+        if h_match:
+            total_seconds += int(h_match.group(1)) * 3600
+        
+        # Extract minutes
+        m_match = re.search(r'(\d+)\s*분', t_str)
+        if m_match:
+            total_seconds += int(m_match.group(1)) * 60
+        else:
+            # If no "분" text but it is a plain integer, treat it as minutes
+            if not h_match and t_str.isdigit():
+                total_seconds += int(t_str) * 60
+                
+        return total_seconds
     except Exception:
         pass
     return 0
