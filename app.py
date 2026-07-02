@@ -1,6 +1,7 @@
 import os
 import re
 import urllib.request
+import ssl
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -32,7 +33,10 @@ def download_sheet(sheet_id):
         export_url, 
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     )
-    with urllib.request.urlopen(req) as response, open(temp_path, 'wb') as out_file:
+    
+    # Avoid SSL certificate verify failed error on Render/Linux
+    context = ssl._create_unverified_context()
+    with urllib.request.urlopen(req, context=context) as response, open(temp_path, 'wb') as out_file:
         out_file.write(response.read())
     
     # Overwrite the cache file if it downloaded successfully
