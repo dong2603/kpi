@@ -6,52 +6,40 @@ import gc
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-from openpyxl import load_workbook
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
 # Local data cache path
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
-LOCAL_XLSX = os.path.join(DATA_DIR, "google_sheets_data.xlsx")
+LOCAL_CSV = os.path.join(DATA_DIR, "google_sheets_data.csv")
 DEFAULT_SHEET_ID = "1Qvg1C1yKhOnz3TdpGT1MBjFnr9Ma3t98z3T6V8mu_Ag"
+DEFAULT_GID = "1028730445"
 
-def find_header_row(filepath, sheet_name="PUBG Court"):
-    wb = load_workbook(filename=filepath, read_only=True)
-    ws = wb[sheet_name]
-    header_row_idx = 7 # Default fallback
+def extract_sheet_id_and_gid(url_or_id):
+    sheet_id = DEFAULT_SHEET_ID
+    gid = DEFAULT_GID
     
-    for r_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if r_idx > 15:
-            break
-        row_vals = [str(cell).strip().lower() for cell in row if cell is not None]
-        if 'start' in row_vals and 'end' in row_vals and 'manager' in row_vals:
-            header_row_idx = r_idx - 1
-            break
-    wb.close()
-    return header_row_idx
-
-def get_sheet_names_light(filepath):
-    wb = load_workbook(filename=filepath, read_only=True)
-    sheets = wb.sheetnames
-    wb.close()
-    return sheets
-
-def extract_sheet_id(url_or_id):
     if not url_or_id:
-        return DEFAULT_SHEET_ID
-    # Check if it is a full Google Sheets URL
-    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url_or_id)
-    if match:
-        return match.group(1)
-    return url_or_id
+        return sheet_id, gid
+        
+    id_match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url_or_id)
+    if id_match:
+        sheet_id = id_match.group(1)
+    else:
+        sheet_id = url_or_id
+        
+    gid_match = re.search(r"[?&]gid=([0-9]+)", url_or_id)
+    if gid_match:
+        gid = gid_match.group(1)
+        
+    return sheet_id, gid
 
-# ... (중략 - download_sheet는 아래에 유지됨)
-def download_sheet(sheet_id):
-    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-    temp_path = os.path.join(DATA_DIR, f"temp_{sheet_id}.xlsx")
+def download_sheet_csv(sheet_id, gid):
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    temp_path = os.path.join(DATA_DIR, f"temp_{sheet_id}.csv")
     
-    print(f"Downloading from: {export_url}")
+    print(f"Downloading CSV from: {export_url}")
     # User-Agent header to avoid Google blockage
     req = urllib.request.Request(
         export_url, 
@@ -64,17 +52,33 @@ def download_sheet(sheet_id):
         out_file.write(response.read())
     
     # Overwrite the cache file if it downloaded successfully
-    if os.path.exists(LOCAL_XLSX):
+    if os.path.exists(LOCAL_CSV):
         try:
-            os.remove(LOCAL_XLSX)
+            os.remove(LOCAL_CSV)
         except Exception:
             pass
     try:
-        os.replace(temp_path, LOCAL_XLSX)
+        os.replace(temp_path, LOCAL_CSV)
     except Exception:
         import shutil
-        shutil.move(temp_path, LOCAL_XLSX)
-    print("Download completed successfully.")
+        shutil.move(temp_path, LOCAL_CSV)
+    print("CSV Download completed successfully.")
+
+def find_header_row_csv(filepath):
+    header_row_idx = 7 # Default fallback
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            for r_idx in range(20):
+                line = f.readline()
+                if not line:
+                    break
+                row_vals = [x.strip().lower() for x in line.split(',')]
+                if 'start' in row_vals and 'end' in row_vals and 'manager' in row_vals:
+                    header_row_idx = r_idx
+                    break
+    except Exception as e:
+        print(f"Failed to find CSV header row: {e}")
+    return header_row_idx
 
 def parse_time_to_seconds(t_val):
     if pd.isna(t_val):
@@ -126,37 +130,38 @@ cached_df = None
 cached_sheets_list = []
 cached_download_error = None
 
-def load_cached_data(sheet_id, force=False):
+def load_cached_data(sheet_id, gid, force=False):
     global cached_df, cached_sheets_list, cached_download_error
     
-    print(f"[CACHE DEBUG] force={force}, cached_df is None={cached_df is None}, file_exists={os.path.exists(LOCAL_XLSX)}")
-    if force or cached_df is None or not os.path.exists(LOCAL_XLSX):
-        print("[CACHE DEBUG] Cache MISS! Re-reading Excel file...")
-        # 1. Download sheet if force=True or LOCAL_XLSX doesn't exist
-        if force or not os.path.exists(LOCAL_XLSX):
+    print(f"[CACHE DEBUG] force={force}, cached_df is None={cached_df is None}, file_exists={os.path.exists(LOCAL_CSV)}")
+    if force or cached_df is None or not os.path.exists(LOCAL_CSV):
+        print("[CACHE DEBUG] Cache MISS! Re-reading CSV file...")
+        # 1. Download sheet if force=True or LOCAL_CSV doesn't exist
+        if force or not os.path.exists(LOCAL_CSV):
             try:
-                download_sheet(sheet_id)
+                download_sheet_csv(sheet_id, gid)
                 cached_download_error = None
             except Exception as e:
                 cached_download_error = str(e)
-                print(f"Download failed: {e}. Using cached local data if available.")
-                if not os.path.exists(LOCAL_XLSX):
+                print(f"CSV Download failed: {e}. Using cached local data if available.")
+                if not os.path.exists(LOCAL_CSV):
                     raise e
                     
-        # 2. Parse excel file header row index using openpyxl (Low memory)
-        header_row_idx = find_header_row(LOCAL_XLSX)
+        # 2. Parse CSV file header row index
+        header_row_idx = find_header_row_csv(LOCAL_CSV)
         
-        # 3. Parse only required columns from Excel into DataFrame
+        # 3. Parse only required columns from CSV (Extremely Low Memory)
         cols_to_use = [
             'end', 'manager', 'platformf', 'term', 'name', 
             'steamid', 'detail reason', 'type1', 'type2', '완료소요시간'
         ]
         
-        df = pd.read_excel(
-            LOCAL_XLSX, 
-            sheet_name="PUBG Court", 
+        df = pd.read_csv(
+            LOCAL_CSV, 
             skiprows=header_row_idx,
-            usecols=cols_to_use
+            usecols=cols_to_use,
+            encoding='utf-8',
+            on_bad_lines='skip'
         )
         
         # Clean column names (strip spaces)
@@ -180,10 +185,10 @@ def load_cached_data(sheet_id, force=False):
         # Save to memory cache
         cached_df = df
         
-        # Get active sheets summary information using openpyxl (Low memory)
-        cached_sheets_list = get_sheet_names_light(LOCAL_XLSX)
+        # CSV mode fallback for sheet names (static)
+        cached_sheets_list = ["PUBG Court"]
         
-        # Force grabage collection to free memory instantly
+        # Force garbage collection to free memory instantly
         gc.collect()
             
     return cached_df, cached_sheets_list, cached_download_error
@@ -191,7 +196,7 @@ def load_cached_data(sheet_id, force=False):
 @app.route('/api/court-data')
 def get_court_data():
     sheet_param = request.args.get('url', '')
-    sheet_id = extract_sheet_id(sheet_param)
+    sheet_id, gid = extract_sheet_id_and_gid(sheet_param)
     force_download = request.args.get('force', 'false').lower() == 'true'
     
     # Query filters
@@ -203,8 +208,10 @@ def get_court_data():
     
     try:
         # Load from cache (or re-load if force_download is True)
-        df, active_sheets, download_error = load_cached_data(sheet_id, force=force_download)
+        df, active_sheets, download_error = load_cached_data(sheet_id, gid, force=force_download)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": f"데이터 로드 실패: {str(e)}"
