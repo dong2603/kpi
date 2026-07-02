@@ -177,6 +177,14 @@ async function loadDashboardData(force = false) {
         if (day) fetchUrl += `&day=${encodeURIComponent(day)}`;
         
         const response = await fetch(fetchUrl);
+        
+        // JSON 응답이 아닌 경우 방어 처리
+        const contentType = response.headers.get("content-type");
+        if (!response.ok || !contentType || !contentType.includes("application/json")) {
+            const errText = await response.text();
+            throw new Error(`서버 에러 (${response.status}): ${errText.substring(0, 100)}`);
+        }
+        
         const data = await response.json();
         
         if (data.success) {
