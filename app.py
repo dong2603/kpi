@@ -130,6 +130,17 @@ def format_seconds_to_str(total_seconds):
         return f"{h:02d}:{m:02d}:{s:02d}"
     return f"{m:02d}:{s:02d}"
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    tb = traceback.format_exc()
+    print(f"[SYSTEM ERROR] {str(e)}\nTraceback:\n{tb}")
+    return jsonify({
+        "success": False,
+        "error": f"시스템 서버 에러: {str(e)}",
+        "traceback": tb
+    }), 500
+
 @app.route('/api/log', methods=['POST'])
 def client_log():
     try:
