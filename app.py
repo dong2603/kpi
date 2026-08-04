@@ -29,7 +29,8 @@ def extract_sheet_id_and_gid(url_or_id):
     else:
         sheet_id = url_or_id
         
-    gid_match = re.search(r"[?&]gid=([0-9]+)", url_or_id)
+    # Support both ?gid= and #gid= URL formats
+    gid_match = re.search(r"[?&#]gid=([0-9]+)", url_or_id)
     if gid_match:
         gid = gid_match.group(1)
         
@@ -183,19 +184,26 @@ def load_cached_data(sheet_id, gid, force=False):
         # 2. Parse CSV file header row index
         header_row_idx = find_header_row_csv(LOCAL_CSV)
         
-        # 3. Parse only required columns from CSV (Extremely Low Memory)
+        # 3. Parse only required columns from CSV (Extremely Low Memory via Chunking)
         cols_to_use = [
             'end', 'manager', 'platformf', 'term', 'name', 
             'steamid', 'detail reason', 'type1', 'type2', '완료소요시간'
         ]
         
-        df = pd.read_csv(
+        chunks = []
+        for chunk in pd.read_csv(
             LOCAL_CSV, 
             skiprows=header_row_idx,
             usecols=cols_to_use,
             encoding='utf-8',
-            on_bad_lines='skip'
-        )
+            on_bad_lines='skip',
+            chunksize=10000
+        ):
+            chunks.append(chunk)
+            
+        df = pd.concat(chunks, ignore_index=True)
+        del chunks
+        gc.collect()
         
         # Clean column names (strip spaces)
         df.columns = [str(col).strip() for col in df.columns]
@@ -203,8 +211,8 @@ def load_cached_data(sheet_id, gid, force=False):
         # Drop rows where 'end' is empty
         df = df.dropna(subset=['end'])
         
-        # Convert 'end' to datetime
-        df['end_dt'] = pd.to_datetime(df['end'], errors='coerce')
+        # Convert 'end' to datetime (format='mixed' to avoid CPU/memory spike)
+        df['end_dt'] = pd.to_datetime(df['end'], errors='coerce', format='mixed')
         df = df.dropna(subset=['end_dt'])
         
         # Sort by end datetime descending
