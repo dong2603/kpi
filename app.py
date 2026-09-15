@@ -49,7 +49,7 @@ def download_sheet_csv(sheet_id, gid):
     
     # Avoid SSL certificate verify failed error on Render/Linux
     context = ssl._create_unverified_context()
-    with urllib.request.urlopen(req, context=context) as response, open(temp_path, 'wb') as out_file:
+    with urllib.request.urlopen(req, context=context, timeout=20) as response, open(temp_path, 'wb') as out_file:
         out_file.write(response.read())
     
     # Overwrite the cache file if it downloaded successfully
