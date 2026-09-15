@@ -136,11 +136,68 @@ function initTabNavigation() {
     });
 }
 
-// 2. Sync Button Handler
+// 2. Sync Button Handler (Background Asynchronous Sync)
 function initSyncButton() {
     const btnSync = document.getElementById('btn-sync');
-    btnSync.addEventListener('click', () => {
-        loadDashboardData(true);
+    if (!btnSync) return;
+    
+    btnSync.addEventListener('click', async () => {
+        const syncIcon = document.querySelector('.sync-icon');
+        const sheetUrl = document.getElementById('sheet-url')?.value || '';
+        
+        if (btnSync.classList.contains('syncing')) {
+            showToast('이미 구글 시트 최신 데이터 동기화가 진행 중입니다.', 'info');
+            return;
+        }
+        
+        btnSync.classList.add('syncing');
+        if (syncIcon) syncIcon.classList.add('loading');
+        
+        showToast('실시간 동기화를 시작합니다. 구글 시트에서 최신 데이터를 가져오는 중입니다 (약 2~3분 소요)...', 'info');
+        
+        try {
+            const syncUrl = `/api/sync?url=${encodeURIComponent(sheetUrl)}`;
+            const res = await fetch(syncUrl, { method: 'POST' });
+            const result = await res.json();
+            
+            if (!result.success) {
+                throw new Error(result.message || '동기화 시작 실패');
+            }
+            
+            // Poll status every 3 seconds
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch('/api/sync-status');
+                    const statusData = await statusRes.json();
+                    
+                    if (!statusData.in_progress) {
+                        clearInterval(pollInterval);
+                        btnSync.classList.remove('syncing');
+                        if (syncIcon) syncIcon.classList.remove('loading');
+                        
+                        if (statusData.info && statusData.info.status === 'success') {
+                            showToast('최신 데이터 동기화가 완료되었습니다! 대시보드를 갱신합니다.', 'success');
+                            // Update sync time text
+                            const syncTimeEl = document.getElementById('sync-time');
+                            if (syncTimeEl && statusData.info.updated_at) {
+                                syncTimeEl.textContent = `갱신 시간: ${statusData.info.updated_at}`;
+                            }
+                            // Reload dashboard with fresh cached data
+                            loadDashboardData(false);
+                        } else if (statusData.info && statusData.info.status === 'error') {
+                            showToast(statusData.info.message || '동기화 중 오류가 발생했습니다.', 'error');
+                        }
+                    }
+                } catch (pollErr) {
+                    console.error('Sync polling error:', pollErr);
+                }
+            }, 3000);
+            
+        } catch (err) {
+            btnSync.classList.remove('syncing');
+            if (syncIcon) syncIcon.classList.remove('loading');
+            showToast(`동기화 요청 실패: ${err.message}`, 'error');
+        }
     });
 }
 

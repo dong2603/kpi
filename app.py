@@ -3,6 +3,7 @@ import re
 import urllib.request
 import ssl
 import gc
+import threading
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -15,6 +16,11 @@ DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_CSV = os.path.join(DATA_DIR, "google_sheets_data.csv")
 DEFAULT_SHEET_ID = "1Qvg1C1yKhOnz3TdpGT1MBjFnr9Ma3t98z3T6V8mu_Ag"
 DEFAULT_GID = "1028730445"
+
+# Sync status management
+sync_lock = threading.Lock()
+sync_in_progress = False
+sync_status_info = {"status": "idle", "message": "", "updated_at": ""}
 
 def extract_sheet_id_and_gid(url_or_id):
     sheet_id = DEFAULT_SHEET_ID
@@ -36,34 +42,51 @@ def extract_sheet_id_and_gid(url_or_id):
         
     return sheet_id, gid
 
-def download_sheet_csv(sheet_id, gid):
-    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    temp_path = os.path.join(DATA_DIR, f"temp_{sheet_id}.csv")
+def download_and_convert_sheet(sheet_id):
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    temp_xlsx = os.path.join(DATA_DIR, f"temp_{sheet_id}.xlsx")
+    temp_csv = os.path.join(DATA_DIR, f"temp_{sheet_id}.csv")
     
-    print(f"Downloading CSV from: {export_url}")
-    # User-Agent header to avoid Google blockage
+    print(f"[SYNC] Downloading XLSX from: {export_url}")
     req = urllib.request.Request(
         export_url, 
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     )
     
-    # Avoid SSL certificate verify failed error on Render/Linux
     context = ssl._create_unverified_context()
-    with urllib.request.urlopen(req, context=context, timeout=20) as response, open(temp_path, 'wb') as out_file:
-        out_file.write(response.read())
+    with urllib.request.urlopen(req, context=context, timeout=300) as response, open(temp_xlsx, 'wb') as out_file:
+        while True:
+            chunk = response.read(64 * 1024)
+            if not chunk:
+                break
+            out_file.write(chunk)
+            
+    print(f"[SYNC] XLSX download complete. Converting PUBG Court to CSV...")
+    df_raw = pd.read_excel(temp_xlsx, sheet_name="PUBG Court", header=None)
+    df_raw.to_csv(temp_csv, index=False, header=False, encoding='utf-8')
+    del df_raw
+    gc.collect()
     
-    # Overwrite the cache file if it downloaded successfully
+    # Overwrite LOCAL_CSV safely
     if os.path.exists(LOCAL_CSV):
         try:
             os.remove(LOCAL_CSV)
         except Exception:
             pass
     try:
-        os.replace(temp_path, LOCAL_CSV)
+        os.replace(temp_csv, LOCAL_CSV)
     except Exception:
         import shutil
-        shutil.move(temp_path, LOCAL_CSV)
-    print("CSV Download completed successfully.")
+        shutil.move(temp_csv, LOCAL_CSV)
+        
+    # Clean up temp xlsx
+    if os.path.exists(temp_xlsx):
+        try:
+            os.remove(temp_xlsx)
+        except Exception:
+            pass
+            
+    print(f"[SYNC] Successfully updated {LOCAL_CSV}")
 
 def find_header_row_csv(filepath):
     header_row_idx = 7 # Default fallback
@@ -159,6 +182,62 @@ def index():
 def send_static(path):
     return send_from_directory('.', path)
 
+def start_background_sync(sheet_id):
+    global sync_in_progress, sync_status_info, cached_df
+    with sync_lock:
+        if sync_in_progress:
+            return False
+        sync_in_progress = True
+        sync_status_info = {"status": "running", "message": "구글 시트에서 최신 데이터를 다운로드하고 있습니다 (약 2~3분 소요)...", "updated_at": ""}
+
+    def run():
+        global sync_in_progress, sync_status_info, cached_df
+        try:
+            download_and_convert_sheet(sheet_id)
+            # Re-read cached_df cleanly
+            cached_df = None
+            load_cached_data(sheet_id, DEFAULT_GID, force=False)
+            now_str = pd.Timestamp.now().strftime('%Y.%m.%d %H:%M')
+            sync_status_info = {"status": "success", "message": "동기화가 성공적으로 완료되었습니다!", "updated_at": now_str}
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            sync_status_info = {"status": "error", "message": f"동기화 실패: {str(e)}", "updated_at": ""}
+        finally:
+            with sync_lock:
+                sync_in_progress = False
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return True
+
+@app.route('/api/sync', methods=['POST', 'GET'])
+def api_sync():
+    sheet_param = request.args.get('url', '')
+    sheet_id, gid = extract_sheet_id_and_gid(sheet_param)
+    
+    started = start_background_sync(sheet_id)
+    if started:
+        return jsonify({
+            "success": True,
+            "started": True,
+            "message": "실시간 백그라운드 동기화가 시작되었습니다."
+        })
+    else:
+        return jsonify({
+            "success": True,
+            "started": False,
+            "message": "이미 최신 데이터 동기화가 진행 중입니다."
+        })
+
+@app.route('/api/sync-status', methods=['GET'])
+def api_sync_status():
+    with sync_lock:
+        return jsonify({
+            "in_progress": sync_in_progress,
+            "info": sync_status_info
+        })
+
 # Global cache in-memory
 cached_df = None
 cached_sheets_list = []
@@ -170,14 +249,14 @@ def load_cached_data(sheet_id, gid, force=False):
     print(f"[CACHE DEBUG] force={force}, cached_df is None={cached_df is None}, file_exists={os.path.exists(LOCAL_CSV)}")
     if force or cached_df is None or not os.path.exists(LOCAL_CSV):
         print("[CACHE DEBUG] Cache MISS! Re-reading CSV file...")
-        # 1. Download sheet if force=True or LOCAL_CSV doesn't exist
-        if force or not os.path.exists(LOCAL_CSV):
+        # 1. Download sheet if LOCAL_CSV doesn't exist
+        if not os.path.exists(LOCAL_CSV):
             try:
-                download_sheet_csv(sheet_id, gid)
+                download_and_convert_sheet(sheet_id)
                 cached_download_error = None
             except Exception as e:
                 cached_download_error = str(e)
-                print(f"CSV Download failed: {e}. Using cached local data if available.")
+                print(f"Sheet Download failed: {e}. Using cached local data if available.")
                 if not os.path.exists(LOCAL_CSV):
                     raise e
                     
