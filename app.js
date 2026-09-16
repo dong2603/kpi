@@ -153,7 +153,7 @@ function initSyncButton() {
         btnSync.classList.add('syncing');
         if (syncIcon) syncIcon.classList.add('loading');
         
-        showToast('실시간 동기화를 시작합니다. 구글 시트에서 최신 데이터를 가져오는 중입니다 (약 2~3분 소요)...', 'info');
+        showToast('실시간 동기화를 시작합니다. 구글 시트에서 최신 데이터를 가져오는 중입니다 (약 3~5초 소요)...', 'info');
         
         try {
             const syncUrl = `/api/sync?url=${encodeURIComponent(sheetUrl)}`;

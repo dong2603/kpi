@@ -42,6 +42,48 @@ def extract_sheet_id_and_gid(url_or_id):
         
     return sheet_id, gid
 
+def download_sheet_direct_csv(sheet_id, gid=DEFAULT_GID):
+    # 1. Fast direct CSV download via export (takes ~2.4s)
+    # 2. Fast direct CSV download via gviz (takes ~2.6s)
+    urls = [
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}"
+    ]
+    
+    context = ssl._create_unverified_context()
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    temp_csv = os.path.join(DATA_DIR, f"temp_{sheet_id}.csv")
+    
+    for url in urls:
+        try:
+            print(f"[FAST-SYNC] Trying direct CSV download from: {url}")
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, context=context, timeout=15) as response, open(temp_csv, 'wb') as out_file:
+                while True:
+                    chunk = response.read(64 * 1024)
+                    if not chunk:
+                        break
+                    out_file.write(chunk)
+                    
+            if os.path.exists(temp_csv) and os.path.getsize(temp_csv) > 1024 * 1024:
+                # Valid CSV file downloaded
+                if os.path.exists(LOCAL_CSV):
+                    try: os.remove(LOCAL_CSV)
+                    except Exception: pass
+                try:
+                    os.replace(temp_csv, LOCAL_CSV)
+                except Exception:
+                    import shutil
+                    shutil.move(temp_csv, LOCAL_CSV)
+                print(f"[FAST-SYNC] Direct CSV successfully updated in {LOCAL_CSV}")
+                return True
+        except Exception as e:
+            print(f"[FAST-SYNC] Direct download failed via {url}: {e}")
+            
+    # Fallback to full XLSX conversion if both CSV direct downloads fail
+    print("[FAST-SYNC] Falling back to XLSX full conversion...")
+    return download_and_convert_sheet(sheet_id)
+
 def download_and_convert_sheet(sheet_id):
     export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
     temp_xlsx = os.path.join(DATA_DIR, f"temp_{sheet_id}.xlsx")
@@ -87,6 +129,7 @@ def download_and_convert_sheet(sheet_id):
             pass
             
     print(f"[SYNC] Successfully updated {LOCAL_CSV}")
+    return True
 
 def find_header_row_csv(filepath):
     header_row_idx = 7 # Default fallback
@@ -182,21 +225,21 @@ def index():
 def send_static(path):
     return send_from_directory('.', path)
 
-def start_background_sync(sheet_id):
+def start_background_sync(sheet_id, gid=DEFAULT_GID):
     global sync_in_progress, sync_status_info, cached_df
     with sync_lock:
         if sync_in_progress:
             return False
         sync_in_progress = True
-        sync_status_info = {"status": "running", "message": "구글 시트에서 최신 데이터를 다운로드하고 있습니다 (약 2~3분 소요)...", "updated_at": ""}
+        sync_status_info = {"status": "running", "message": "구글 시트에서 최신 데이터를 가져오는 중입니다 (약 3~5초 소요)...", "updated_at": ""}
 
     def run():
         global sync_in_progress, sync_status_info, cached_df
         try:
-            download_and_convert_sheet(sheet_id)
+            download_sheet_direct_csv(sheet_id, gid)
             # Re-read cached_df cleanly
             cached_df = None
-            load_cached_data(sheet_id, DEFAULT_GID, force=False)
+            load_cached_data(sheet_id, gid, force=False)
             now_str = pd.Timestamp.now().strftime('%Y.%m.%d %H:%M')
             sync_status_info = {"status": "success", "message": "동기화가 성공적으로 완료되었습니다!", "updated_at": now_str}
         except Exception as e:
@@ -216,7 +259,7 @@ def api_sync():
     sheet_param = request.args.get('url', '')
     sheet_id, gid = extract_sheet_id_and_gid(sheet_param)
     
-    started = start_background_sync(sheet_id)
+    started = start_background_sync(sheet_id, gid)
     if started:
         return jsonify({
             "success": True,
