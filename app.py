@@ -4,6 +4,7 @@ import urllib.request
 import ssl
 import gc
 import threading
+import time
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -21,6 +22,7 @@ DEFAULT_GID = "1028730445"
 sync_lock = threading.Lock()
 sync_in_progress = False
 sync_status_info = {"status": "idle", "message": "", "updated_at": ""}
+last_sync_time = 0  # Timestamp of last successful sync
 
 def extract_sheet_id_and_gid(url_or_id):
     sheet_id = DEFAULT_SHEET_ID
@@ -58,7 +60,7 @@ def download_sheet_direct_csv(sheet_id, gid=DEFAULT_GID):
         try:
             print(f"[FAST-SYNC] Trying direct CSV download from: {url}")
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, context=context, timeout=15) as response, open(temp_csv, 'wb') as out_file:
+            with urllib.request.urlopen(req, context=context, timeout=30) as response, open(temp_csv, 'wb') as out_file:
                 while True:
                     chunk = response.read(64 * 1024)
                     if not chunk:
@@ -234,13 +236,14 @@ def start_background_sync(sheet_id, gid=DEFAULT_GID):
         sync_status_info = {"status": "running", "message": "구글 시트에서 최신 데이터를 가져오는 중입니다 (약 3~5초 소요)...", "updated_at": ""}
 
     def run():
-        global sync_in_progress, sync_status_info, cached_df
+        global sync_in_progress, sync_status_info, cached_df, last_sync_time
         try:
             download_sheet_direct_csv(sheet_id, gid)
             # Re-read cached_df cleanly
             cached_df = None
             load_cached_data(sheet_id, gid, force=False)
             now_str = pd.Timestamp.now().strftime('%Y.%m.%d %H:%M')
+            last_sync_time = time.time()
             sync_status_info = {"status": "success", "message": "동기화가 성공적으로 완료되었습니다!", "updated_at": now_str}
         except Exception as e:
             import traceback
@@ -372,6 +375,11 @@ def get_court_data():
     try:
         # Load from cache (or re-load if force_download is True)
         df, active_sheets, download_error = load_cached_data(sheet_id, gid, force=force_download)
+        
+        # Auto background sync:
+        # If last sync was more than 10 minutes ago, automatically trigger background sync!
+        if time.time() - last_sync_time > 600:
+            start_background_sync(sheet_id, gid)
     except Exception as e:
         import traceback
         traceback.print_exc()

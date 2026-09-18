@@ -136,6 +136,47 @@ function initTabNavigation() {
     });
 }
 
+let lastSeenSyncTime = '';
+let isWatchingSync = false;
+
+// Background Auto-Sync Watcher
+function startAutoSyncWatcher() {
+    if (isWatchingSync) return;
+    isWatchingSync = true;
+    
+    setInterval(async () => {
+        try {
+            const statusRes = await fetch('/api/sync-status');
+            const statusData = await statusRes.json();
+            const btnSync = document.getElementById('btn-sync');
+            const syncIcon = document.querySelector('.sync-icon');
+            
+            if (statusData.in_progress) {
+                if (btnSync) btnSync.classList.add('syncing');
+                if (syncIcon) syncIcon.classList.add('loading');
+            } else {
+                if (btnSync) btnSync.classList.remove('syncing');
+                if (syncIcon) syncIcon.classList.remove('loading');
+                
+                if (statusData.info && statusData.info.status === 'success') {
+                    const newSyncTime = statusData.info.updated_at;
+                    if (newSyncTime && lastSeenSyncTime && newSyncTime !== lastSeenSyncTime) {
+                        lastSeenSyncTime = newSyncTime;
+                        const syncTimeEl = document.getElementById('sync-time');
+                        if (syncTimeEl) syncTimeEl.textContent = `갱신 시간: ${newSyncTime}`;
+                        showToast('구글 시트 최신 데이터로 자동 갱신되었습니다!', 'fa-circle-check', 'var(--neon-green)');
+                        loadDashboardData(false);
+                    } else if (newSyncTime && !lastSeenSyncTime) {
+                        lastSeenSyncTime = newSyncTime;
+                    }
+                }
+            }
+        } catch (e) {
+            // silent fail
+        }
+    }, 4000);
+}
+
 // 2. Sync Button Handler (Background Asynchronous Sync)
 function initSyncButton() {
     const btnSync = document.getElementById('btn-sync');
@@ -153,7 +194,7 @@ function initSyncButton() {
         btnSync.classList.add('syncing');
         if (syncIcon) syncIcon.classList.add('loading');
         
-        showToast('실시간 동기화를 시작합니다. 구글 시트에서 최신 데이터를 가져오는 중입니다 (약 3~5초 소요)...', 'info');
+        showToast('실시간 동기화를 시작합니다. 백그라운드에서 최신 데이터를 가져오는 중입니다...', 'info');
         
         try {
             const syncUrl = `/api/sync?url=${encodeURIComponent(sheetUrl)}`;
@@ -163,36 +204,6 @@ function initSyncButton() {
             if (!result.success) {
                 throw new Error(result.message || '동기화 시작 실패');
             }
-            
-            // Poll status every 3 seconds
-            const pollInterval = setInterval(async () => {
-                try {
-                    const statusRes = await fetch('/api/sync-status');
-                    const statusData = await statusRes.json();
-                    
-                    if (!statusData.in_progress) {
-                        clearInterval(pollInterval);
-                        btnSync.classList.remove('syncing');
-                        if (syncIcon) syncIcon.classList.remove('loading');
-                        
-                        if (statusData.info && statusData.info.status === 'success') {
-                            showToast('최신 데이터 동기화가 완료되었습니다! 대시보드를 갱신합니다.', 'success');
-                            // Update sync time text
-                            const syncTimeEl = document.getElementById('sync-time');
-                            if (syncTimeEl && statusData.info.updated_at) {
-                                syncTimeEl.textContent = `갱신 시간: ${statusData.info.updated_at}`;
-                            }
-                            // Reload dashboard with fresh cached data
-                            loadDashboardData(false);
-                        } else if (statusData.info && statusData.info.status === 'error') {
-                            showToast(statusData.info.message || '동기화 중 오류가 발생했습니다.', 'error');
-                        }
-                    }
-                } catch (pollErr) {
-                    console.error('Sync polling error:', pollErr);
-                }
-            }, 3000);
-            
         } catch (err) {
             btnSync.classList.remove('syncing');
             if (syncIcon) syncIcon.classList.remove('loading');
@@ -256,6 +267,9 @@ async function loadDashboardData(force = false) {
             
             // Update last sync time
             updateLastSyncTime();
+            
+            // Start background auto-sync watcher
+            startAutoSyncWatcher();
             
             if (force) {
                 showToast("데이터 동기화 완료!", "fa-circle-check", "#00e676");
