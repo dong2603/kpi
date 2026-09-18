@@ -5,6 +5,7 @@ import ssl
 import gc
 import threading
 import time
+import csv
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -137,11 +138,11 @@ def find_header_row_csv(filepath):
     header_row_idx = 7 # Default fallback
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            for r_idx in range(20):
-                line = f.readline()
-                if not line:
+            reader = csv.reader(f)
+            for r_idx, row in enumerate(reader):
+                if r_idx > 60:
                     break
-                row_vals = [x.strip().lower() for x in line.split(',')]
+                row_vals = [str(x).strip().lower() for x in row]
                 if 'start' in row_vals and 'end' in row_vals and 'manager' in row_vals:
                     header_row_idx = r_idx
                     break
@@ -310,16 +311,25 @@ def load_cached_data(sheet_id, gid, force=False):
         header_row_idx = find_header_row_csv(LOCAL_CSV)
         
         # 3. Parse only required columns from CSV (Extremely Low Memory via Chunking)
-        cols_to_use = [
-            'end', 'manager', 'platformf', 'term', 'name', 
-            'steamid', 'detail reason', 'type1', 'type2', '완료소요시간'
-        ]
+        # Inspect available columns first to completely prevent "Usecols do not match" error
+        try:
+            header_sample = pd.read_csv(LOCAL_CSV, skiprows=header_row_idx, nrows=0, encoding='utf-8')
+            col_map = {str(c).strip(): c for c in header_sample.columns}
+            target_cols = [
+                'end', 'manager', 'platformf', 'term', 'name', 
+                'steamid', 'detail reason', 'type1', 'type2', '완료소요시간'
+            ]
+            matched_usecols = [col_map[c] for c in target_cols if c in col_map]
+            if 'end' not in col_map or 'manager' not in col_map:
+                matched_usecols = None
+        except Exception:
+            matched_usecols = None
         
         chunks = []
         for chunk in pd.read_csv(
             LOCAL_CSV, 
             skiprows=header_row_idx,
-            usecols=cols_to_use,
+            usecols=matched_usecols,
             encoding='utf-8',
             on_bad_lines='skip',
             chunksize=10000
