@@ -169,6 +169,8 @@ function startAutoSyncWatcher() {
                     } else if (newSyncTime && !lastSeenSyncTime) {
                         lastSeenSyncTime = newSyncTime;
                     }
+                } else if (statusData.info && statusData.info.status === 'error') {
+                    showToast(statusData.info.message || '동기화 중 오류가 발생했습니다.', 'fa-circle-exclamation', 'var(--warning-red)');
                 }
             }
         } catch (e) {
@@ -187,14 +189,14 @@ function initSyncButton() {
         const sheetUrl = document.getElementById('sheet-url')?.value || '';
         
         if (btnSync.classList.contains('syncing')) {
-            showToast('이미 구글 시트 최신 데이터 동기화가 진행 중입니다.', 'info');
+            showToast('이미 구글 시트 최신 데이터 동기화가 백그라운드에서 진행 중입니다.', 'info');
             return;
         }
         
         btnSync.classList.add('syncing');
         if (syncIcon) syncIcon.classList.add('loading');
         
-        showToast('실시간 동기화를 시작합니다. 백그라운드에서 최신 데이터를 가져오는 중입니다...', 'info');
+        showToast('실시간 동기화를 시작합니다. 시트 데이터가 대용량(7만건+)이어서 약 1~2분 소요되며, 완료 시 자동으로 화면이 갱신됩니다.', 'info');
         
         try {
             const syncUrl = `/api/sync?url=${encodeURIComponent(sheetUrl)}`;
