@@ -274,6 +274,78 @@ def start_background_sync(sheet_id, gid=DEFAULT_GID):
     t.start()
     return True
 
+@app.route('/api/push-sync', methods=['POST'])
+def api_push_sync():
+    global cached_df, last_sync_time
+    try:
+        data = request.get_json(force=True)
+        if not data or 'rows' not in data:
+            return jsonify({"success": False, "error": "전송된 데이터가 없습니다."}), 400
+        
+        # Simple security token verification
+        token = request.headers.get('X-Sync-Token', '')
+        if token != "pubg_court_secret_801300" and data.get('secret') != "pubg_court_secret_801300":
+            return jsonify({"success": False, "error": "인증 실패 (토큰 불일치)"}), 403
+            
+        new_rows = data['rows']
+        print(f"[PUSH-SYNC] Received {len(new_rows):,} rows from Google Sheet push!")
+        
+        if not new_rows:
+            return jsonify({"success": True, "message": "새 데이터 없음"}), 200
+            
+        # Read existing clean CSV (header is at row 0)
+        df_existing = pd.read_csv(LOCAL_CSV, encoding='utf-8', on_bad_lines='skip', low_memory=False)
+        df_existing.columns = [str(c).strip() for c in df_existing.columns]
+        
+        # Match new rows columns exactly to df_existing
+        row_len = len(new_rows[0])
+        use_headers = list(df_existing.columns[:row_len])
+        df_new = pd.DataFrame(new_rows, columns=use_headers)
+        df_new.columns = [str(c).strip() for c in df_new.columns]
+        
+        # Concat and deduplicate
+        df_merged = pd.concat([df_existing, df_new], ignore_index=True)
+        
+        # Deduplicate by key columns if available
+        subset_cols = [c for c in ['end', 'manager', 'name'] if c in df_merged.columns]
+        if subset_cols:
+            df_merged = df_merged.drop_duplicates(subset=subset_cols, keep='last')
+        else:
+            df_merged = df_merged.drop_duplicates(keep='last')
+            
+        # Sort descending by end date if present
+        if 'end' in df_merged.columns:
+            df_merged['end_dt_temp'] = pd.to_datetime(df_merged['end'], errors='coerce', format='mixed')
+            df_merged = df_merged.sort_values(by='end_dt_temp', ascending=False).drop(columns=['end_dt_temp'])
+            
+        # Write back cleanly without padding lines
+        temp_csv = LOCAL_CSV + ".tmp"
+        df_merged.to_csv(temp_csv, index=False, encoding='utf-8')
+            
+        if os.path.exists(temp_csv) and os.path.getsize(temp_csv) > 1024 * 1024:
+            if os.path.exists(LOCAL_CSV):
+                try: os.remove(LOCAL_CSV)
+                except Exception: pass
+            os.replace(temp_csv, LOCAL_CSV)
+            
+        # Refresh in-memory cache
+        cached_df = None
+        load_cached_data(DEFAULT_SHEET_ID, DEFAULT_GID, force=True)
+        last_sync_time = time.time()
+        
+        now_str = pd.Timestamp.now().strftime('%Y.%m.%d %H:%M')
+        print(f"[PUSH-SYNC] Successfully merged! Total rows in CSV: {len(df_merged):,}")
+        return jsonify({
+            "success": True,
+            "message": f"성공적으로 {len(new_rows):,}건의 최신 데이터가 대시보드에 반영되었습니다.",
+            "total_rows": len(df_merged),
+            "updated_at": now_str
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/sync', methods=['POST', 'GET'])
 def api_sync():
     sheet_param = request.args.get('url', '')
